@@ -7,6 +7,7 @@ if [ $# -lt 1 ]
 then
    printf "\n"
    printf "Syntax: ./convert_psp8_to_upf.sh FILE1 FILE2 ...\n\n"
+   printf "Requirement: ONCVPSP (http://www.mat-simresearch.com/)\n"
    printf "Converts PSP8 files FILE1, FILE2, ... to UPF format.\n"
    printf "Leaves PSP8 formatted files unmodified.\n\n"
    printf "convert_psp8_to_upf.sh -- Qimen Xu, 07/2021.\n\n"
