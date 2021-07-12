@@ -28,6 +28,7 @@
 
 typedef struct _PSD_OBJ {
     char   atomtype[8]; // atom type
+    double zion; // number of valence electrons
     double *rVloc;     // stores local part of pseudopotential times radius
     double *UdV; 
     double *rhoIsoAtom;       // stores isolated atom electron density
@@ -39,13 +40,9 @@ typedef struct _PSD_OBJ {
     double *Gamma;
     double Vloc_0;
     int lmax;       // maximum pseudopotential component
+    int lloc;       // local pseudopotential component
     int size;       // size of the arrays storing the pseudopotentials   
     int *ppl;        // number of nonlocal projectors per l
-    
-    // NOT USED YET
-    //double **V;       // stores the component of pseudopotential
-    //double **U;       // stores the component of pseudowavefunction    
-    //double **SplineFitU;
 } PSD_OBJ;
 
 // function declarations
@@ -58,18 +55,15 @@ void write_psp(char *PSP_fname, PSD_OBJ psd, int lloc);
 void print_usage();
 
 
+
 int main(int argc, char *argv[]) {
-    
     char TM_filename[128], PSP_filename[128];
     int lloc;
     
     lloc = 0;
-    //    strncpy(TM_filename, "psd_Al.pot", sizeof(TM_filename));
-    //    strncpy(PSP_filename, "Al.LDA.TM.psp8", sizeof(TM_filename));
-    strncpy(TM_filename, "psd_Na.pot", sizeof(TM_filename));
-    strncpy(PSP_filename, "Na_TM.psp", sizeof(TM_filename));
-
-
+    strncpy(TM_filename, "psd_Ge.pot", sizeof(TM_filename));
+    strncpy(PSP_filename, "psd_TM_Ge.pot", sizeof(TM_filename));
+    
     if (argc == 3) {
         lloc = atoi(argv[1]);
         strncpy(TM_filename, argv[2], sizeof(TM_filename));
@@ -87,9 +81,12 @@ int main(int argc, char *argv[]) {
     printf(GRN "input filename: %s\n" RESET, TM_filename);
     printf(GRN "output filename: %s\n" RESET, PSP_filename);
     printf(GRN "============================\n" RESET);
-
+    
     TM2PSP(TM_filename,PSP_filename,lloc);
- 
+
+    printf(GRN "======\n" RESET);
+    printf(GRN "Done. \n" RESET);
+    printf(GRN "======\n" RESET);
     return 0;
 }
 
@@ -103,9 +100,11 @@ void TM2PSP(char *TM_fname, char *PSP_fname, int lloc)
     PSD_OBJ psd;
     // read Troulier-Martins potential
     read_pseudopotential_TM(TM_fname, &psd, lloc);
-    // write psp format potential file
-    write_psp(PSP_fname, psd, lloc);
     
+    printf(YEL "zion = %f \n" RESET, psd.zion);
+
+    // write psp format potential file
+    write_psp(PSP_fname, psd, lloc);    
 }
 
 
@@ -127,7 +126,7 @@ void write_psp(char *PSP_fname, PSD_OBJ psd, int lloc)
         fprintf(psp_fp, "   %.5lf", psd.rc[i]);
     }
     fprintf(psp_fp, "\n");
-    fprintf(psp_fp, "0.0000      0.0000      000000    zatom,zion,pspd\n");
+    fprintf(psp_fp, "0.0000      %.4f      000000    zatom,zion,pspd\n",psd.zion);
     fprintf(psp_fp, "     8       2   %d      %d   %d     0    pspcod,pspxc,lmax,lloc,mmax,r2well\n", psd.lmax,lloc,psd.size);
     fprintf(psp_fp, "  0.00000000  0.00000000  0.00000000    rchrg fchrg qchrg\n");
     
@@ -142,17 +141,31 @@ void write_psp(char *PSP_fname, PSD_OBJ psd, int lloc)
     fprintf(psp_fp, "     1     1           extension_switch\n");
     // write projectors
     for (l = 0; l <= psd.lmax; l++) {
-        fprintf(psp_fp, "   %-d                         %.13e\n",l,psd.Gamma[l]);
-        for (i = 0; i < psd.size; i++) {
-            fprintf(psp_fp, "%6d  %.13e  %.13e\n", i+1, psd.RadialGrid[i], psd.UdV[l*psd.size+i]*psd.RadialGrid[i]);
+        if (l == psd.lloc) {
+            // write Vloc
+            fprintf(psp_fp, "%5d\n",l); // simply setting to lloc is problematic for reading
+            fprintf(psp_fp, "     1  0.0000000000000e+00  %.13e\n", psd.rVloc[1]/psd.RadialGrid[1]);
+            for (i = 1; i < psd.size; i++) {
+                fprintf(psp_fp, "%6d  %.13e  %.13e\n", i+1, psd.RadialGrid[i], psd.rVloc[i]/psd.RadialGrid[i]);
+            }
+        } else {
+            fprintf(psp_fp, "   %-d                         %.13e\n",l,psd.Gamma[l]);
+            for (i = 0; i < psd.size; i++) {
+                fprintf(psp_fp, "%6d  %.13e  %.13e\n", i+1, psd.RadialGrid[i], psd.UdV[l*psd.size+i]*psd.RadialGrid[i]);
+            }
         }
     }
-    // write Vloc
-    fprintf(psp_fp, "%5d\n",4); // simply set to lloc is problematic for reading
-    fprintf(psp_fp, "     1  0.0000000000000e+00  %.13e\n", psd.rVloc[1]/psd.RadialGrid[1]);
-    for (i = 1; i < psd.size; i++) {
-        fprintf(psp_fp, "%6d  %.13e  %.13e\n", i+1, psd.RadialGrid[i], psd.rVloc[i]/psd.RadialGrid[i]);
+
+    if (psd.lloc > psd.lmax) {
+        // write Vloc
+        fprintf(psp_fp, "%5d\n",4); // simply setting to lloc is problematic for reading
+        fprintf(psp_fp, "     1  0.0000000000000e+00  %.13e\n", psd.rVloc[1]/psd.RadialGrid[1]);
+        for (i = 1; i < psd.size; i++) {
+            fprintf(psp_fp, "%6d  %.13e  %.13e\n", i+1, psd.RadialGrid[i], psd.rVloc[i]/psd.RadialGrid[i]);
+        }
     }
+    
+
     // write isolated atom electron density (3rd line of )
     for (i = 0; i < psd.size; i++) {
         fprintf(psp_fp, "%6d  %.13e  %.13e  0.0000000000000e+00  0.0000000000000e+00\n", i+1, psd.RadialGrid[i], psd.rhoIsoAtom[i] * 4 * M_PI);
@@ -168,104 +181,6 @@ void write_psp(char *PSP_fname, PSD_OBJ psd, int lloc)
     
 }
 
-
-
-/**
- * @brief   Calculates derivatives of a tabulated function required for spline interpolation.
- */
-void getYD_gen(double *X, double *Y, double *YD, int len) {
-    int i;
-    double h0,h1,r0,r1,*A,*B,*C;
-          
-    A = (double *)malloc(sizeof(double)*len);
-    B = (double *)malloc(sizeof(double)*len);
-    C = (double *)malloc(sizeof(double)*len);
-    if (A == NULL || B == NULL || C == NULL) {
-        printf("Memory allocation failed!\n");
-        exit(EXIT_FAILURE);
-    }
-
-    h0 =  X[1]-X[0]; h1 = X[2]-X[1];
-    r0 = (Y[1]-Y[0])/h0; r1=(Y[2]-Y[1])/h1;
-    B[0] = h1*(h0+h1);
-    C[0] = (h0+h1)*(h0+h1);
-    YD[0] = r0*(3*h0*h1 + 2*h1*h1) + r1*h0*h0;
-               
-    for(i=1;i<len-1;i++) {
-        h0 = X[i]-X[i-1]; h1=X[i+1]-X[i];
-        r0 = (Y[i]-Y[i-1])/h0;  r1=(Y[i+1]-Y[i])/h1;
-        A[i] = h1;
-        B[i] = 2*(h0+h1);
-        C[i] = h0;
-        YD[i] = 3*(r0*h1 + r1*h0);
-    }
-           
-    A[i] = (h0+h1)*(h0+h1);
-    B[i] = h0*(h0+h1);
-    YD[i] = r0*h1*h1 + r1*(3*h0*h1 + 2*h0*h0);
-     
-    tridiag_gen(A,B,C,YD,len);
-    
-    free(A); free(B); free(C);                                     
-}
-
-
-
-/**
- * @brief   Cubic spline coefficients, but without copying Y and YD into A0 and A1, respectively.
- */
-void SplineCoeff(double *X,double *Y,double *YD,int len,double *A3,double *A2) {
-    int j;
-    double dx,dy;
-    for (j = 0; j < len-1; j++) {
-        dx = 1.0 / (X[j+1] - X[j]);
-        dy = (Y[j+1] - Y[j]) * dx;
-        // note: there's no need to copy Y or YD into another array
-        // A0[j] = Y[j]; 
-        // A1[j] = YD[j];
-        A2[j] = dx * (3.0 * dy - 2.0 * YD[j] - YD[j+1]);
-        A3[j] = dx * dx * (-2.0*dy + YD[j] + YD[j+1]);
-    }
-}
-
- 
-/**
- * @brief   Solves a tridiagonal system using Gauss Elimination.
- */
-void tridiag_gen(double *A, double *B, double *C, double *D, int len) {
-    int i;
-    double b, *F;
-    F = (double *)malloc(sizeof(double)*len);
-    if (F == NULL) {
-        printf("Memory allocation failed!\n");
-        exit(EXIT_FAILURE);
-    }
-    
-    // Gauss elimination; forward substitution
-    b = B[0];
-    if (b == 0) {
-        printf("Divide by zero in tridiag_gen\n"); 
-        exit(EXIT_FAILURE);
-    }
-    D[0] = D[0]/b;
-    for (i = 1; i<len; i++) {
-        F[i] = C[i-1] / b;
-        b= B[i] - A[i] * F[i];
-        if (b == 0) {
-            printf("Divide by zero in tridiag_gen\n"); 
-            exit(EXIT_FAILURE);
-        }
-        D[i] = (D[i] - D[i-1] * A[i])/b;
-    }
-    // backsubstitution 
-    for (i = len-2; i >= 0; i--)
-        D[i] -= (D[i+1]*F[i+1]);
-        
-    free(F);
-}
- 
- 
- 
 /**
  * @brief   Read pseudopotential files (Troulier-Martins format).
  */
@@ -286,6 +201,8 @@ void read_pseudopotential_TM(char *TM_fname, PSD_OBJ *psd, int lloc) {
         exit(EXIT_FAILURE);
     }
     
+    psd->lloc = lloc;
+
     /* first check the pseudopotential file and find size of pseudopotential data */
     // check atom type
     fscanf(psd_fp, "%s", str);
@@ -293,8 +210,10 @@ void read_pseudopotential_TM(char *TM_fname, PSD_OBJ *psd, int lloc) {
     printf("Atom type: %s\n",(*psd).atomtype);
     
     // find size of pseudopotential data
-    j = 0;
+    j = 0; 
+    int len_last = 0;
     do {
+        len_last = strlen(str);
         fgets(str, 128, psd_fp);
         j++;
     } while (strcmp(str," Radial grid follows\n") != 0 && j < 1e6);
@@ -304,6 +223,24 @@ void read_pseudopotential_TM(char *TM_fname, PSD_OBJ *psd, int lloc) {
         exit(EXIT_FAILURE);
     }
     
+    // go back one line to read zion
+    fseek (psd_fp, -1*(strlen(str)+len_last), SEEK_CUR );
+    fscanf(psd_fp, "%lf", &vtemp);
+    fscanf(psd_fp, "%lf", &vtemp);
+    fscanf(psd_fp, "%lf", &vtemp);
+    fscanf(psd_fp, "%lf", &vtemp);
+    fscanf(psd_fp, "%lf", &vtemp);
+    fscanf(psd_fp, "%lf", &psd->zion);
+    printf("zion = %f\n", psd->zion);
+
+    // find size of pseudopotential data
+    j = 0;
+    do {
+        fgets(str, 128, psd_fp);
+        j++;
+    } while (strcmp(str," Radial grid follows\n") != 0 && j < 1e6);
+    
+
     count = 0;
     do {
         fscanf(psd_fp,"%s",str);
@@ -557,13 +494,109 @@ void read_pseudopotential_TM(char *TM_fname, PSD_OBJ *psd, int lloc) {
 
 }
 
+
+
+
+/**
+ * @brief   Calculates derivatives of a tabulated function required for spline interpolation.
+ */
+void getYD_gen(double *X, double *Y, double *YD, int len) {
+    int i;
+    double h0,h1,r0,r1,*A,*B,*C;
+          
+    A = (double *)malloc(sizeof(double)*len);
+    B = (double *)malloc(sizeof(double)*len);
+    C = (double *)malloc(sizeof(double)*len);
+    if (A == NULL || B == NULL || C == NULL) {
+        printf("Memory allocation failed!\n");
+        exit(EXIT_FAILURE);
+    }
+
+    h0 =  X[1]-X[0]; h1 = X[2]-X[1];
+    r0 = (Y[1]-Y[0])/h0; r1=(Y[2]-Y[1])/h1;
+    B[0] = h1*(h0+h1);
+    C[0] = (h0+h1)*(h0+h1);
+    YD[0] = r0*(3*h0*h1 + 2*h1*h1) + r1*h0*h0;
+               
+    for(i=1;i<len-1;i++) {
+        h0 = X[i]-X[i-1]; h1=X[i+1]-X[i];
+        r0 = (Y[i]-Y[i-1])/h0;  r1=(Y[i+1]-Y[i])/h1;
+        A[i] = h1;
+        B[i] = 2*(h0+h1);
+        C[i] = h0;
+        YD[i] = 3*(r0*h1 + r1*h0);
+    }
+           
+    A[i] = (h0+h1)*(h0+h1);
+    B[i] = h0*(h0+h1);
+    YD[i] = r0*h1*h1 + r1*(3*h0*h1 + 2*h0*h0);
+     
+    tridiag_gen(A,B,C,YD,len);
+    
+    free(A); free(B); free(C);                                     
+}
+
+
+
+/**
+ * @brief   Cubic spline coefficients, but without copying Y and YD into A0 and A1, respectively.
+ */
+void SplineCoeff(double *X,double *Y,double *YD,int len,double *A3,double *A2) {
+    int j;
+    double dx,dy;
+    for (j = 0; j < len-1; j++) {
+        dx = 1.0 / (X[j+1] - X[j]);
+        dy = (Y[j+1] - Y[j]) * dx;
+        // note: there's no need to copy Y or YD into another array
+        // A0[j] = Y[j]; 
+        // A1[j] = YD[j];
+        A2[j] = dx * (3.0 * dy - 2.0 * YD[j] - YD[j+1]);
+        A3[j] = dx * dx * (-2.0*dy + YD[j] + YD[j+1]);
+    }
+}
+
+ 
+/**
+ * @brief   Solves a tridiagonal system using Gauss Elimination.
+ */
+void tridiag_gen(double *A, double *B, double *C, double *D, int len) {
+    int i;
+    double b, *F;
+    F = (double *)malloc(sizeof(double)*len);
+    if (F == NULL) {
+        printf("Memory allocation failed!\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Gauss elimination; forward substitution
+    b = B[0];
+    if (b == 0) {
+        printf("Divide by zero in tridiag_gen\n"); 
+        exit(EXIT_FAILURE);
+    }
+    D[0] = D[0]/b;
+    for (i = 1; i<len; i++) {
+        F[i] = C[i-1] / b;
+        b= B[i] - A[i] * F[i];
+        if (b == 0) {
+            printf("Divide by zero in tridiag_gen\n"); 
+            exit(EXIT_FAILURE);
+        }
+        D[i] = (D[i] - D[i-1] * A[i])/b;
+    }
+    // backsubstitution 
+    for (i = len-2; i >= 0; i--)
+        D[i] -= (D[i+1]*F[i+1]);
+        
+    free(F);
+}
+ 
  
 void print_usage() {
     printf("\n");
     printf("Usage: TM2psp8 [lloc] [input fname] [output fname]\n");
     printf("\n");
 }
-
 
 
 
